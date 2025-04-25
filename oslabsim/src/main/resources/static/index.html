@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OS Algorithm Simulator (Web)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f0f0f0; }
+    textarea, select, input, button { margin: 5px 0; width: 100%; }
+    .panel { background: white; padding: 15px; margin-bottom: 20px; border-radius: 8px; }
+    .tabs { display: flex; margin-bottom: 10px; }
+    .tab { padding: 10px 20px; cursor: pointer; background: #ddd; margin-right: 5px; border-radius: 8px 8px 0 0; }
+    .tab.active { background: white; font-weight: bold; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    pre { white-space: pre-wrap; word-wrap: break-word; background: #eee; padding: 10px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <h2>OS Algorithm Simulator (Web Version)</h2>
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab(0)">Process Scheduling</div>
+    <div class="tab" onclick="switchTab(1)">Disk Scheduling</div>
+    <div class="tab" onclick="switchTab(2)">Page Replacement</div>
+  </div>
+  <div class="tab-content active" id="process-tab">
+    <div class="panel">
+      <select id="process-algo">
+        <option>FCFS</option><option>SJF-NP</option><option>Priority-NP</option>
+        <option>SJF-P</option><option>RR</option><option>Priority-P</option>
+      </select>
+      <input type="number" id="quantum" placeholder="Quantum (RR only)" disabled>
+      <textarea id="process-input" rows="6">P1,0,5,2
+P2,1,3,1
+P3,2,8,3</textarea>
+      <button onclick="runProcess()">Run</button>
+      <pre id="process-output"></pre>
+    </div>
+  </div>
+  <div class="tab-content" id="disk-tab">
+    <div class="panel">
+      <select id="disk-algo">
+        <option>FCFS</option><option>SSTF</option><option>SCAN</option>
+        <option>C-SCAN</option><option>LOOK</option><option>C-LOOK</option>
+      </select>
+      <input id="disk-head" placeholder="Head Start (e.g. 53)" value="53">
+      <input id="disk-size" placeholder="Disk Size (e.g. 199)" value="199">
+      <textarea id="disk-input" rows="6">98
+183
+37
+122
+14
+124
+65
+67</textarea>
+      <button onclick="runDisk()">Run</button>
+      <pre id="disk-output"></pre>
+    </div>
+  </div>
+  <div class="tab-content" id="page-tab">
+    <div class="panel">
+      <select id="page-algo">
+        <option>FIFO</option><option>LRU</option><option>Optimal</option>
+      </select>
+      <input id="frame-capacity" placeholder="Frame Capacity" value="3">
+      <textarea id="page-input" rows="6">7
+0
+1
+2
+0
+3
+0
+4
+2
+3
+0
+3</textarea>
+      <button onclick="runPage()">Run</button>
+      <pre id="page-output"></pre>
+    </div>
+  </div>
+<script>
+function switchTab(i) {
+  document.querySelectorAll('.tab').forEach((tab, idx) => tab.classList.toggle('active', idx === i));
+  document.querySelectorAll('.tab-content').forEach((c, idx) => c.classList.toggle('active', idx === i));
+}
+document.getElementById('process-algo').onchange = e => {
+  document.getElementById('quantum').disabled = e.target.value !== 'RR';
+};
+const parseLines = txt => txt.split('\n').map(x => x.trim()).filter(Boolean);
+function runProcess() {
+  const algo = document.getElementById('process-algo').value;
+  const lines = parseLines(document.getElementById('process-input').value);
+  const quantum = parseInt(document.getElementById('quantum').value || 0);
+  const procs = lines.map(l => { let [id,a,b,p=0]=l.split(','); return {id, a:+a, b:+b, p:+p, r:+b, start:-1, done:0}; });
+  let time = 0, out = [], ready = [], done = [], idx = 0, gantt=[];
+  procs.sort((a,b)=>a.a-b.a);
+  while (done.length < procs.length) {
+    while (idx < procs.length && procs[idx].a <= time) ready.push(procs[idx++]);
+    if (!ready.length) { time = procs[idx].a; continue; }
+    let p;
+    if (algo==='FCFS') ready.sort((a,b)=>a.a-b.a);
+    else if (algo==='SJF-NP') ready.sort((a,b)=>a.b-b.b);
+    else if (algo==='Priority-NP') ready.sort((a,b)=>a.p-b.p);
+    else if (algo==='SJF-P') ready.sort((a,b)=>a.r-b.r);
+    else if (algo==='Priority-P') ready.sort((a,b)=>a.p-b.p);
+    if (algo==='RR') {
+      p = ready.shift(); if (p.start===-1) p.start = time;
+      let slice = Math.min(quantum,p.r); gantt.push(`| ${p.id} [${time}-${time+slice}]`); p.r -= slice; time += slice;
+      while (idx < procs.length && procs[idx].a <= time) ready.push(procs[idx++]);
+      if (p.r>0) ready.push(p); else { p.done = time; done.push(p); }
+    } else if (algo.endsWith('-P')) {
+      p = ready.shift(); if (p.start===-1) p.start = time;
+      gantt.push(`| ${p.id} [${time}-${time+1}]`); p.r--; time++;
+      if (p.r===0) { p.done = time; done.push(p); } else ready.push(p);
+    } else {
+      p = ready.shift(); p.start = time; gantt.push(`| ${p.id} [${time}-${time+p.b}]`); time += p.b; p.done = time; done.push(p);
+    }
+  }
+  let result = 'Gantt Chart:\n' + gantt.join(' ') + ' |\n\n';
+  result += `PID    AT  BT  Prio  CT  TAT  WT\n`;
+  let totalTAT = 0, totalWT = 0;
+  done.forEach(p => {
+    let tat = p.done - p.a;
+    let wt = tat - p.b;
+    totalTAT += tat;
+    totalWT += wt;
+    result += `${p.id.padEnd(7)}${p.a.toString().padEnd(4)}${p.b.toString().padEnd(4)}${p.p.toString().padEnd(6)}${p.done.toString().padEnd(4)}${tat.toString().padEnd(5)}${wt}\n`;
+  });
+  result += `\nAverage Turnaround Time: ${(totalTAT/done.length).toFixed(2)}\nAverage Waiting Time: ${(totalWT/done.length).toFixed(2)}`;
+  document.getElementById('process-output').textContent = result;
+}
+function runDisk() {
+  const algo = document.getElementById('disk-algo').value;
+  const head = +document.getElementById('disk-head').value;
+  const max = +document.getElementById('disk-size').value;
+  let q = parseLines(document.getElementById('disk-input').value).map(Number);
+  let cur = head, seq = [], total = 0;
+  if (algo==='FCFS') q.forEach(x => { seq.push(x); total+=Math.abs(cur-x); cur=x; });
+  else {
+    q.sort((a,b)=>a-b);
+    let left = q.filter(x=>x<cur), right = q.filter(x=>x>=cur);
+    if (algo==='SSTF') while(q.length) { q.sort((a,b)=>Math.abs(a-cur)-Math.abs(b-cur)); let n=q.shift(); seq.push(n); total+=Math.abs(n-cur); cur=n; }
+    else if (algo==='SCAN') { right.forEach(x=>{seq.push(x); total+=Math.abs(x-cur); cur=x;}); total+=Math.abs(max-cur); cur=max; left.reverse().forEach(x=>{seq.push(x); total+=Math.abs(x-cur); cur=x;}); }
+    else if (algo==='C-SCAN') { right.forEach(x=>{seq.push(x); total+=Math.abs(x-cur); cur=x;}); total+=Math.abs(max-cur)+max; cur=0; left.forEach(x=>{seq.push(x); total+=Math.abs(x-cur); cur=x;}); }
+    else if (algo==='LOOK') { right.forEach(x=>{seq.push(x); total+=Math.abs(x-cur); cur=x;}); left.reverse().forEach(x=>{seq.push(x); total+=Math.abs(x-cur); cur=x;}); }
+    else if (algo==='C-LOOK') { right.forEach(x=>{seq.push(x); total+=Math.abs(x-cur); cur=x;}); if (left.length) { cur=left[0]; total+=Math.abs(seq[seq.length-1]-cur); seq.push(...left); for (let i=1;i<left.length;i++) total+=Math.abs(left[i]-left[i-1]); } }
+  }
+  document.getElementById('disk-output').textContent = `Seek: ${[head,...seq].join(' -> ')}\nTotal Movement: ${total}`;
+}
+function runPage() {
+  const algo = document.getElementById('page-algo').value;
+  const cap = +document.getElementById('frame-capacity').value;
+  const ref = parseLines(document.getElementById('page-input').value).map(Number);
+  let set = new Set(), q=[], hits=0, faults=0, out=[];
+  ref.forEach((x,i)=>{
+    let step = `Ref: ${x} Frame: `;
+    if (set.has(x)) { hits++; step+=q; }
+    else {
+      faults++;
+      if (set.size<cap) { set.add(x); q.push(x); }
+      else {
+        let victim = algo==='LRU' ? q.shift() : (algo==='Optimal'? (()=>{
+          let future = ref.slice(i+1), index = q.map(pg => future.indexOf(pg));
+          let idx = index.indexOf(-1); return idx!==-1?q[idx]:q[index.indexOf(Math.max(...index))];
+        })() : q.shift());
+        set.delete(victim); set.add(x); q.splice(q.indexOf(victim),1); q.push(x);
+      }
+      step+=q;
+    }
+    out.push(step);
+  });
+  document.getElementById('page-output').textContent = `Page Faults: ${faults}\nPage Hits: ${hits}\n`+out.join('\n');
+}
+</script>
+</body>
+</html>
